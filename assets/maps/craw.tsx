@@ -1,4 +1,4 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <tileset version="1.10" tiledversion="1.11.2" name="craw" tilewidth="16" tileheight="16" tilecount="440" columns="8">
- <image source="../../../CRAWLING DEPTHS/Tileset.png" width="128" height="880"/>
+ <image source="Tileset.png" width="128" height="880"/>
 </tileset>
