@@ -13,19 +13,28 @@ class Map:
     # Rendering Properties
     _surface: pg.Surface
     
+    # [新增] 隱藏圖層列表
+    hidden_layers: list[str]
+
     # Collision & Interaction Rects
     _collision_map: list[pg.Rect]
     _bush_rects: list[pg.Rect]
     _altar_rects: list[pg.Rect]
     _shop_keeper_rects: list[pg.Rect]
     _hospital_rects: list[pg.Rect]
-    _casino_rects: list[pg.Rect] # 新增 Casino (Thermal) 互動區域列表
+    _casino_rects: list[pg.Rect] 
+    _roulette_rects: list[pg.Rect] 
+    _aerial_rects: list[pg.Rect] 
+    _gym_rects: list[pg.Rect] 
 
     def __init__(self, path: str, tp: list[Teleport], spawn: Position):
         self.path_name = path
         self.tmxdata = load_tmx(path)
         self.spawn = spawn
         self.teleporters = tp
+        
+        # 初始化隱藏列表
+        self.hidden_layers = []
 
         pixel_w = self.tmxdata.width * GameSettings.TILE_SIZE
         pixel_h = self.tmxdata.height * GameSettings.TILE_SIZE
@@ -57,14 +66,34 @@ class Map:
                 pg.draw.rect(screen, (0, 255, 0), camera.transform_rect(rect), 1)
             for rect in self._shop_keeper_rects:
                 pg.draw.rect(screen, (0, 0, 255), camera.transform_rect(rect), 1)
-            for rect in self._casino_rects: # 繪製 Casino 判定框 (Debug用)
+            for rect in self._casino_rects: 
                 pg.draw.rect(screen, (255, 215, 0), camera.transform_rect(rect), 1)
+            for rect in self._roulette_rects: 
+                pg.draw.rect(screen, (0, 255, 255), camera.transform_rect(rect), 1)
+            for rect in self._aerial_rects: 
+                pg.draw.rect(screen, (128, 0, 128), camera.transform_rect(rect), 1)
+            for rect in self._gym_rects: 
+                pg.draw.rect(screen, (128, 0, 255), camera.transform_rect(rect), 1)
+
+    # [新增] 設定圖層可視性並重繪
+    def set_layer_visibility(self, layer_name: str, visible: bool):
+        changed = False
+        if not visible:
+            if layer_name not in self.hidden_layers:
+                self.hidden_layers.append(layer_name)
+                changed = True
+        else:
+            if layer_name in self.hidden_layers:
+                self.hidden_layers.remove(layer_name)
+                changed = True
+        
+        if changed:
+            self._surface.fill((0, 0, 0, 0)) # 清空畫布
+            self._render_all_layers(self._surface) # 重繪
 
     def check_collision(self, obj) -> bool:
-        # [修改] 在這裡引入 dev_tool 以避免 Circular Import
         from src.core.dev_tools import dev_tool
         
-        # [DEV MODE] 如果穿牆模式開啟，直接無視碰撞
         if dev_tool.active and dev_tool.noclip_mode:
             return False
 
@@ -86,7 +115,7 @@ class Map:
         for tp in self.teleporters:
             teleport_rect = pg.Rect(tp.pos.x, tp.pos.y, GameSettings.TILE_SIZE, GameSettings.TILE_SIZE)
             if player_rect.colliderect(teleport_rect):
-                # Additional check: center distance
+                # Check center distance
                 pc_x = pos.x + GameSettings.TILE_SIZE // 2
                 pc_y = pos.y + GameSettings.TILE_SIZE // 2
                 tc_x = tp.pos.x + GameSettings.TILE_SIZE // 2
@@ -97,7 +126,7 @@ class Map:
 
     # --- Interaction Checkers ---
     def _check_interaction(self, pos: Position, rect_list: list[pg.Rect]) -> pg.Rect | None:
-        # 使用中心點進行判定，手感較好
+        # 使用中心點進行判定
         pc_x = pos.x + GameSettings.TILE_SIZE // 2
         pc_y = pos.y + GameSettings.TILE_SIZE // 2
         for rect in rect_list:
@@ -118,12 +147,24 @@ class Map:
         return self._check_interaction(pos, self._hospital_rects)
 
     def get_casino_at_pos(self, pos: Position) -> pg.Rect | None:
-        # 新增：取得 Casino (Thermal) 互動位置
         return self._check_interaction(pos, self._casino_rects)
+    
+    def get_roulette_at_pos(self, pos: Position) -> pg.Rect | None:
+        return self._check_interaction(pos, self._roulette_rects)
+
+    def get_aerial_at_pos(self, pos: Position) -> pg.Rect | None:
+        return self._check_interaction(pos, self._aerial_rects)
+
+    def get_gym_at_pos(self, pos: Position) -> pg.Rect | None:
+        return self._check_interaction(pos, self._gym_rects)
 
     # --- Internal Logic Building ---
     def _render_all_layers(self, target: pg.Surface) -> None:
         for layer in self.tmxdata.visible_layers:
+            # [新增] 跳過隱藏圖層
+            if layer.name in self.hidden_layers:
+                continue
+
             if isinstance(layer, pytmx.TiledTileLayer):
                 
                 layer_opacity = getattr(layer, 'opacity', 1.0)
@@ -141,50 +182,48 @@ class Map:
                         target.blit(image, (x * GameSettings.TILE_SIZE, y * GameSettings.TILE_SIZE))
 
     def _build_map_logic(self):
-        """
-        Reads TMX layers and assigns tiles to collision or interaction lists based on layer name keywords.
-        """
         self._collision_map = []
         self._bush_rects = []
         self._altar_rects = []
         self._shop_keeper_rects = []
         self._hospital_rects = []
-        self._casino_rects = [] # 初始化
+        self._casino_rects = [] 
+        self._roulette_rects = [] 
+        self._aerial_rects = [] 
+        self._gym_rects = []
 
-        # Keywords for obstacles (Block movement)
         collision_keywords = [
             'collision', 'obstacle', 'wall', 'building', 'house', 'tree', 
             'rock', 'cliff', 'mountain', 'water', 'ocean', 'river', 'pond', 
             'lake', 'table', 'chair', 'counter', 'fall'
         ]
         
-        # Iterate all visible tile layers
         for layer in self.tmxdata.visible_layers:
             if not isinstance(layer, pytmx.TiledTileLayer):
                 continue
             
             name = layer.name.lower()
             
-            # Identify layer type
             is_collision = any(k in name for k in collision_keywords)
-            
-            # Specific Interaction Layers
             is_bush = 'bush' in name
             is_altar = 'altar' in name
             is_shop = ('shop' in name or 'keeper' in name) and 'hospital' not in name
             is_hospital = 'hospital' in name or 'clinic' in name or 'medical' in name
-            
-            # 新增：偵測 "thermal" 關鍵字作為 Casino
             is_casino = 'thermal' in name
-            
-            # Optimization: Skip decorative layers (unless it's collision)
-            if not (is_collision or is_bush or is_altar or is_shop or is_hospital or is_casino):
+            is_roulette = 'aqua' in name
+            is_aerial = 'aerial' in name 
+            is_gym = 'gym' in name
+
+            if is_gym:
+                print(f"[Map] Loaded Gym Layer: '{layer.name}' in {self.path_name}")
+
+            if not (is_collision or is_bush or is_altar or is_shop or is_hospital or is_casino or is_roulette or is_aerial or is_gym):
                 continue
 
             for x, y, gid in layer:
                 if gid == 0: continue
                 
-                # Exclude specific interaction (Hardcoded fix for new map)
+                # Exclude specific interaction (new map fix)
                 if "new map" in self.path_name and x == 23 and y == 21:
                     if is_hospital: 
                         continue
@@ -196,23 +235,18 @@ class Map:
                     GameSettings.TILE_SIZE
                 )
                 
-                if is_hospital:
-                    self._hospital_rects.append(rect)
-                elif is_shop: 
-                    self._shop_keeper_rects.append(rect)
-                elif is_casino: # 加入 Casino 列表
-                    self._casino_rects.append(rect)
+                if is_hospital: self._hospital_rects.append(rect)
+                elif is_shop: self._shop_keeper_rects.append(rect)
+                elif is_casino: self._casino_rects.append(rect)
+                elif is_roulette: self._roulette_rects.append(rect)
+                elif is_aerial: self._aerial_rects.append(rect)
+                elif is_gym: self._gym_rects.append(rect)
                 
-                if is_bush:
-                    self._bush_rects.append(rect)
-                
-                if is_altar:
-                    self._altar_rects.append(rect)
+                if is_bush: self._bush_rects.append(rect)
+                if is_altar: self._altar_rects.append(rect)
+                if is_collision: self._collision_map.append(rect)
 
-                if is_collision:
-                    self._collision_map.append(rect)
-
-        # Final Step: Remove collisions at Teleporter positions
+        # Remove collisions at Teleporter positions
         if self.teleporters:
             tp_coords = set()
             for tp in self.teleporters:

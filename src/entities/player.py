@@ -203,10 +203,3 @@ class Player(Entity):
             game_manager
         )
         return player
-'''
-classmethod 給你 cls（就是 Player 類別）
-
-所以可以寫 cls(...) 來建立物件
-直接使用類別名稱來呼叫類別方法，而不需要先建立該類別的實例
-不需要先有 player 物件才可以建 player
-'''

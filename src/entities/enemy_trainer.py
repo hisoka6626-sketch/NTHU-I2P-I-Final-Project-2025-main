@@ -35,7 +35,7 @@ class EnemyTrainer(Entity):
     # 恐怖效果計時器
     _horror_timer: float
     
-    # 擊敗狀態 (避免重複戰鬥)
+    # 擊敗狀態 (本版本移除鎖定邏輯，保留變數以防相容性問題)
     is_defeated: bool
 
     @override
@@ -77,17 +77,13 @@ class EnemyTrainer(Entity):
 
     @override
     def update(self, dt: float) -> None:
-        # 如果已擊敗，停止更新
-        if self.is_defeated:
-            return
-
-        # 1. 基礎移動 (IdleMovement = 不動)
+        # 1. 基礎移動
         self._movement.update(self, dt)
         
-        # 2. 視線檢查
+        # 2. 視線檢查 (不再檢查 is_defeated，隨時可以被發現)
         self._has_los_to_player()
         
-        # 更新恐怖計時器 (只影響視覺閃爍，不影響移動)
+        # 更新恐怖計時器
         if self.is_dark_map:
             self._horror_timer += dt
 
@@ -105,8 +101,8 @@ class EnemyTrainer(Entity):
             
             if has_live_pokemon:
                 Logger.info(f"Battle triggered with trainer at ({self.position.x}, {self.position.y}).")
-                # 標記為已擊敗，避免戰鬥結束後卡在原地重複觸發
-                self.is_defeated = True
+                # [修改] 這裡不再將 self.is_defeated 設為 True，允許無限次戰鬥
+                # self.is_defeated = True 
                 scene_manager.change_scene("battle")
             else:
                 Logger.info("Cannot fight trainer: No live pokemon!")
@@ -120,10 +116,8 @@ class EnemyTrainer(Entity):
 
     @override
     def draw(self, screen: pygame.Surface, camera: PositionCamera) -> None:
-        # 已擊敗則不畫 (消失)
-        if self.is_defeated:
-            return
-
+        # [保留] 確保不消失
+        
         # ==========================================
         # 1. 一般模式 (Normal Mode)
         # ==========================================
@@ -131,6 +125,7 @@ class EnemyTrainer(Entity):
             super().draw(screen, camera)
             if self.detected:
                 self.warning_sign.draw(screen, camera)
+            
             if GameSettings.DRAW_HITBOXES:
                 los_rect = self._get_los_rect()
                 if los_rect is not None:
@@ -159,14 +154,12 @@ class EnemyTrainer(Entity):
             screen.blit(los_surf, camera.transform_rect(los_rect))
 
         # B. 畫變暗的人物
-        # 使用 self.animation.image 確保是用 Entity 切割好的圖
         current_frame = self.animation.image
         darkened_image = current_frame.copy()
         
         tint_color = (150, 80, 80) if self.detected else (60, 60, 80)
         darkened_image.fill(tint_color, special_flags=pygame.BLEND_RGB_MULT)
         
-        # 計算繪製位置
         rect = darkened_image.get_rect(topleft=(self.position.x, self.position.y))
         transformed_rect = camera.transform_rect(rect)
         
@@ -281,7 +274,6 @@ class EnemyTrainer(Entity):
         if facing is None and classification == EnemyTrainerClassification.STATIONARY:
             facing = Direction.DOWN
             
-        # 讀取 is_dark_map
         is_dark_map = False
         if "is_dark_map" in data:
             is_dark_map = data["is_dark_map"]

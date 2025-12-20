@@ -29,14 +29,17 @@ class GameManager:
     # Changing Scene properties (for fade transition + teleport)
     should_change_scene: bool
     next_map: str
+    
+    # [新增] 用於劇情強制傳送的座標
+    force_next_pos: tuple[int, int] | None 
 
     # Teleport cooldown
     _last_teleport_time: float
     _teleport_cooldown: float
 
-    # ★★★ Dark World Event Properties (新增) ★★★
-    is_triggering_dark_event: bool  # 是否正在觸發掉入裡世界的事件
-    flicker_map_key: str            # 原本想去的地圖 (用於視覺閃爍特效)
+    # Dark World Event Properties
+    is_triggering_dark_event: bool  
+    flicker_map_key: str            
 
     def __init__(
         self,
@@ -55,24 +58,25 @@ class GameManager:
         self.enemy_trainers = enemy_trainers
         self.bag = bag if bag is not None else _Bag([], [])
 
-        # Map switching state (used by GameScene for淡入淡出)
+        # Map switching state
         self.should_change_scene = False
         self.next_map = ""
+        self.force_next_pos = None # 初始化
 
-        # ★★★ 初始化黑暗事件狀態 ★★★
+        # Dark Event State
         self.is_triggering_dark_event = False
         self.flicker_map_key = ""
 
-        # Navigation target (used by NavigationPanel)
+        # Navigation target
         self.target_map_name = ""
         self.target_position = (0, 0)
-        self.pending_navigation_destination = (0, 0)  # Final destination after cross-map teleport
-        self.navigation_active = False  # Flag to indicate if navigation is currently active
-        self.chat_active = False  # Flag to indicate if chat is currently active
+        self.pending_navigation_destination = (0, 0)  
+        self.navigation_active = False  
+        self.chat_active = False  
 
-        # Teleport cooldown（避免連續觸發傳送）
+        # Teleport cooldown
         self._last_teleport_time = 0.0
-        self._teleport_cooldown = 1.0  # 秒
+        self._teleport_cooldown = 1.0  
 
     # ------------------------------------------------------
     # 便利屬性
@@ -88,16 +92,18 @@ class GameManager:
     # ------------------------------------------------------
     # 傳送 / 換地圖
     # ------------------------------------------------------
-    def switch_map(self, dest_or_tp) -> None:
+    # [修改] 增加 force_pos 參數
+    def switch_map(self, dest_or_tp, force_pos: tuple[int, int] = None) -> None:
         """
-        標記要換地圖但不立即完成切換（配合淡出/淡入動畫）。
-        在此處加入 30% 機率掉入 Dark Map 的判定。
+        標記要換地圖。
+        :param force_pos: (x, y) 網格座標，如果設定了，會強制傳送到這個位置，忽略傳送點邏輯。
         """
         current_time = pg.time.get_ticks() / 1000.0
-        if current_time - self._last_teleport_time < self._teleport_cooldown:
+        # 如果是強制傳送，忽略冷卻時間
+        if force_pos is None and current_time - self._last_teleport_time < self._teleport_cooldown:
             return
 
-        # Determine destination map and possible entrance teleporter
+        # Determine destination
         teleporter_used = None
         if hasattr(dest_or_tp, 'destination') and hasattr(dest_or_tp, 'pos'):
             teleporter_used = dest_or_tp
@@ -109,54 +115,26 @@ class GameManager:
             Logger.warning(f"Map '{dest}' not loaded; cannot switch.")
             return
 
-        # -----------------------------------------------------------
-        # ★★★ Dark World Trigger Logic ★★★
-        # -----------------------------------------------------------
-        DARK_MAP_KEY = "dark map.tmx"
-        
-        # 只有當目標不是 dark map，且當前不在 dark map 時才觸發 (避免無限迴圈或從地獄掉到地獄)
-        # 這裡設定機率 0.3 (30%)
-        if dest != DARK_MAP_KEY and self.current_map_key != DARK_MAP_KEY and DARK_MAP_KEY in self.maps:
-            if random.random() < 0.3:
-                Logger.info("!!! DARK WORLD EVENT TRIGGERED !!!")
-                
-                # 1. 標記事件觸發
-                self.is_triggering_dark_event = True
-                
-                # 2. 記錄原本想去哪裡 (例如 map B)，GameScene 繪圖時會用到這個來做閃爍效果
-                self.flicker_map_key = dest
-                
-                # 3. 強制改變目的地為 Dark Map
-                self.next_map = DARK_MAP_KEY
-                
-                # 4. 因為是強制傳送，我們通常不使用原本傳送點的座標邏輯，而是使用 Dark Map 的預設 Spawn
-                #    或者你可以設計一個機制，根據 map B 的入口計算 dark map 的對應位置
-                self._next_spawn = self.maps[DARK_MAP_KEY].spawn 
-                
-                self.should_change_scene = True
-                self._last_teleport_time = current_time
-                return
-        # -----------------------------------------------------------
+        # [新增] 儲存強制座標
+        self.force_next_pos = force_pos
 
-        # Save next map and (optionally) next spawn position derived from teleporter
+        # Save next map
         self.next_map = dest
         self.should_change_scene = True
         self._last_teleport_time = current_time
 
-        # compute next spawn if teleporter info available
+        # compute next spawn if teleporter info available (only if not forcing pos)
         self._next_spawn = None
-        if teleporter_used:
+        if teleporter_used and not force_pos:
             dest_map = self.maps[dest]
-            # find teleporters in destination map that lead back to current map
             candidates = [t for t in dest_map.teleporters if t.destination == self.current_map_key]
             if candidates:
-                # choose the first matching entrance
                 self._next_spawn = candidates[0].pos
 
 
     def try_switch_map(self) -> None:
         """
-        真正執行地圖切換的函式（在 GameScene 的 fade-out 或 flicker 動畫完成後由場景呼叫）。
+        真正執行地圖切換。
         """
         if not self.should_change_scene:
             return
@@ -166,9 +144,22 @@ class GameManager:
         self.next_map = ""
         self.should_change_scene = False
         
-        # ★★★ 切換完成，重置黑暗事件標記 ★★★
         self.is_triggering_dark_event = False
         self.flicker_map_key = ""
+
+        # [修改] 優先處理強制座標
+        if self.force_next_pos and self.player:
+            fx, fy = self.force_next_pos
+            self.player.position.x = float(fx * GameSettings.TILE_SIZE)
+            self.player.position.y = float(fy * GameSettings.TILE_SIZE)
+            
+            # 同步攝影機
+            self.player.camera.x = self.player.position.x
+            self.player.camera.y = self.player.position.y
+            
+            self.force_next_pos = None # 重置
+            # 這裡直接 return，不執行下面的 navigation 或 teleport 邏輯
+            return
 
         # Check if this is a navigation target switch
         navigation_target = None
@@ -178,25 +169,22 @@ class GameManager:
             self.target_map_name = ""
             self.target_position = (0, 0)
 
-        # ✔ 將玩家放到新地圖的 spawn（若有預設下一個 spawn，優先使用）
+        # ✔ 將玩家放到新地圖的 spawn
         if self.player:
             target_pos = getattr(self, '_next_spawn', None)
             if navigation_target:
                 # Use navigation target position
                 target_pos = type('Pos', (), {'x': navigation_target[0] * GameSettings.TILE_SIZE, 'y': navigation_target[1] * GameSettings.TILE_SIZE})()
             elif target_pos is not None:
-                # Place player AWAY from teleporter entrance to avoid re-triggering
-                # Try offset: 2 tiles down from teleporter
+                # Place player AWAY from teleporter entrance
                 base_x = target_pos.x
                 base_y = target_pos.y + 2 * GameSettings.TILE_SIZE
                 
-                # Check if base offset is walkable; if not, try other directions
                 test_rect = pg.Rect(base_x, base_y, GameSettings.TILE_SIZE, GameSettings.TILE_SIZE)
                 if not self.check_collision(test_rect):
                     self.player.position.x = base_x
                     self.player.position.y = base_y
                 else:
-                    # Fallback: try 2 tiles up, left, right
                     offsets = [(0, -2), (-2, 0), (2, 0), (0, 2), (1, 1), (-1, 1), (1, -1), (-1, -1)]
                     found = False
                     for ox, oy in offsets:
@@ -209,14 +197,12 @@ class GameManager:
                             found = True
                             break
                     if not found:
-                        # Last resort: use target_pos directly
                         self.player.position = target_pos
             else:
                 self.player.position = self.current_map.spawn
 
-            # Double-check: if placement still collided, micro-adjust
+            # Double-check collision
             if self.check_collision(pg.Rect(self.player.position.x, self.player.position.y, GameSettings.TILE_SIZE, GameSettings.TILE_SIZE)):
-                # offsets in tiles to try (including diagonals)
                 offsets = [(0,0),(1,0),(-1,0),(0,1),(0,-1),(2,0),(-2,0),(0,2),(0,-2),(1,1),(-1,1),(1,-1),(-1,-1)]
                 found = False
                 for ox, oy in offsets:
@@ -231,7 +217,7 @@ class GameManager:
                 if not found:
                     Logger.warning("Teleported player into collision and failed to find nearby free tile; leaving at spawn")
 
-        # clear any stored next_spawn
+        # clear stored next_spawn
         if hasattr(self, '_next_spawn'):
             self._next_spawn = None
 
@@ -262,7 +248,7 @@ class GameManager:
         map_blocks: list[dict[str, object]] = []
 
         for key, m in self.maps.items():
-            block = m.to_dict()  # {"path", "teleport", "player": spawn ...}
+            block = m.to_dict()
             block["enemy_trainers"] = [
                 t.to_dict() for t in self.enemy_trainers.get(key, [])
             ]
@@ -294,7 +280,7 @@ class GameManager:
         return cls.from_dict(data)
 
     # ------------------------------------------------------
-    # CREATE NEW GAME (Fresh Start)
+    # CREATE NEW GAME
     # ------------------------------------------------------
     @classmethod
     def new_game(cls) -> "GameManager | None":
@@ -311,7 +297,7 @@ class GameManager:
 
         manager = cls.from_dict(data)
 
-        # Try to load recorded monsters from saves/backup.json as wild_pool (preferred)
+        # Try to load recorded monsters from saves/backup.json
         try:
             backup_path = "saves/backup.json"
             if os.path.exists(backup_path):
@@ -324,7 +310,7 @@ class GameManager:
         except Exception:
             pass
 
-        # Fallback: ensure there's a default wild_pool using menu_sprites 1..16
+        # Fallback: default wild_pool
         if not hasattr(manager, 'wild_pool') or manager.wild_pool is None:
             try:
                 pool = []
@@ -348,7 +334,7 @@ class GameManager:
         return manager
 
     # ------------------------------------------------------
-    # CONVERT JSON → GAME STATE
+    # CONVERT JSON -> GAME STATE
     # ------------------------------------------------------
     @classmethod
     def from_dict(cls, data: dict[str, object]) -> "GameManager":
@@ -391,9 +377,6 @@ class GameManager:
 
         return gm
 
-    # ------------------------------------------------------
-    # COPY GAME STATE
-    # ------------------------------------------------------
     def copy_from(self, other: "GameManager") -> None:
         self.current_map_key = other.current_map_key
         self.maps = other.maps
@@ -408,7 +391,6 @@ class GameManager:
 
         if other.player:
             from src.entities.player import Player
-
             self.player = Player(
                 other.player.position.x,
                 other.player.position.y,

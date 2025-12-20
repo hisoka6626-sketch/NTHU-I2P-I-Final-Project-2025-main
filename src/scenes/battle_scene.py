@@ -718,7 +718,7 @@ class BattleScene(Scene):
                         found = False
                         for item in gm.bag._items_data:
                             if item['name'] == 'Coins':
-                                item['count'] += 10
+                                item['count'] += 250
                                 found = True
                                 break
                         

@@ -10,17 +10,11 @@ if TYPE_CHECKING:
 class Minimap:
     """
     Minimap 組件，顯示當前地圖的縮小視圖和玩家位置。
-    - 位置在畫面右上角
-    - 按 M 鍵可以切換顯示/隱藏
-    - 即使開啟期間玩家仍可走動
-    - 位置實時更新
-    - 顯示完整的地圖樣貌（彩色）
     """
     
     def __init__(self, map_obj: "Map", player: "Player"):
         self.map = map_obj
         self.player = player
-        self.is_open = False
         
         # Minimap 尺寸設置
         self.minimap_width = 250
@@ -108,18 +102,12 @@ class Minimap:
         self.minimap_surface = self._create_minimap_surface()
         Logger.info(f"Minimap updated for new map: {map_obj.path_name}")
     
-    def toggle(self):
-        """切換 minimap 的顯示/隱藏狀態。"""
-        self.is_open = not self.is_open
-    
+    # [新增] 空的 update 方法，防止 GameScene 呼叫時崩潰
     def update(self, dt: float):
-        """更新 minimap（主要用於計時，位置實時更新）。"""
         pass
-    
+
     def draw(self, screen: pg.Surface):
         """繪製 minimap。"""
-        if not self.is_open:
-            return
         
         # 繪製背景
         bg_rect = pg.Rect(

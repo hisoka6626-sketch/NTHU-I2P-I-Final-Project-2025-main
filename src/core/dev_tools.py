@@ -38,7 +38,7 @@ class DevTool:
                 
                 self.last_tab_time = now
 
-                if self.tab_press_count >= 5:
+                if self.tab_press_count >= 1:
                     self.active = not self.active
                     self.tab_press_count = 0
                     state = "ON" if self.active else "OFF"
